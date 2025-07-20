@@ -21,18 +21,18 @@
 /**
  * @brief 设置头部信息，直接覆盖原先数据
  */
-static void _http_set_header(map_str_t *map, char *key, char *value){
+static void _http_set_header(map_str_t *map,const char *key, char *value){
     map_set(map, key, value);
 }
 
 /**
  * @brief 添加头部信息
  */
-static void _http_add_header(map_str_t *map, char *key, char *value){
+static void _http_add_header(map_str_t *map,const char *key, char *value){
     char *old = (char *)map_get(map, key);
     if(old == NULL)
     {
-        _http_set_header(map, key, value);
+        _http_set_header(map,key, value);
         return;
     }
 
@@ -45,7 +45,7 @@ static void _http_add_header(map_str_t *map, char *key, char *value){
 /**
  * @brief 设置头部信息
  */
-static char * _http_get_header(map_str_t *map, char *key){
+static char * _http_get_header(map_str_t *map,const char *key){
     char *val = (char *)map_get(map, key);
     if(val == NULL){
         return "";
@@ -77,7 +77,7 @@ typedef struct HttpRequest {
 /**
  * @brief 添加请求头
  */
-static void _http_request_add_header(HttpRequest *request,const char *key, const char *value){
+static void _http_request_add_header(HttpRequest *request,const char *key, char *value){
     _http_add_header(&request->header,key,value);
 }
 
@@ -104,6 +104,7 @@ typedef struct HttpResponse {
  * @brief 初始化返回数据
  */
 static void http_response_init(HttpResponse *response){
+    response->status = 200;
     map_init(&response->header);
 }
 
@@ -113,19 +114,34 @@ static void http_response_init(HttpResponse *response){
 static HttpResponse *http_response_new(){
     HttpResponse *response = (HttpResponse *)malloc(sizeof(HttpResponse));
     http_response_init(response);
+    return response;
+}
+
+/**
+ * @brief 销毁一个response
+ * 
+ * @param response 
+ */
+static void http_response_destroy(HttpResponse *response){
+    if(response->body!= NULL){
+        free(response->body);
+    }
+    response->body =NULL;
+
+    map_deinit(&response->header);
 }
 
 /**
  * @brief 添加头
  */
-void http_response_add_header(HttpResponse *response, char *key, char *value){
+void http_response_add_header(HttpResponse *response,const char *key, char *value){
     _http_add_header(&response->header,key,value);
 }
 
 /**
  * @brief 设置头部信息
  */
-void http_response_set_header(HttpResponse *response, char *key, char *value){
+void http_response_set_header(HttpResponse *response,const char *key, char *value){
     _http_set_header(&response->header,key,value);
 }
 
@@ -133,7 +149,7 @@ void http_response_set_header(HttpResponse *response, char *key, char *value){
  * @brief 获取头
  * @return 返回头内容
  */
-char *http_response_get_header(HttpResponse *response, char *key){
+char *http_response_get_header(HttpResponse *response,const char *key){
     return _http_get_header(&response->header,key);
 }
 
@@ -192,15 +208,17 @@ static void response_to_client(int client_fd, HttpRequest *request, HttpResponse
             break;
     }
 
-    http_response_set_header(response,"Content-Length",strlen(body));
+    char len_str[10];
+    snprintf(len_str, sizeof(len_str), "%zu", strlen(body));
+    http_response_set_header(response,"Content-Length", len_str);
 
     char *header_str = malloc(sizeof(char*)*255);
     map_iter_t header_iter = map_iter();
-    char *key = NULL;
+    const char *key;
     while ((key = map_next(&response->header, &header_iter)) != NULL)
     {  
        char *tmp = header_str;
-       header_str = str_append(header_str,": ");
+       header_str = str_append(key,": ");
        header_str = str_append(header_str,_http_get_header(&response->header,key));
        header_str = str_append(header_str,"\r\n");
        free(tmp);
@@ -216,10 +234,7 @@ static void response_to_client(int client_fd, HttpRequest *request, HttpResponse
         response->status, status_msg, header_str, body);
 
     write(client_fd, buf, strlen(buf));
-
-
     free(header_str);
-    free((buf));
 }
 
 /**
@@ -268,18 +283,19 @@ static void *handle_client(void *arg) {
     void *m_val = map_get(&hs.svr->routes, route);
 
     // 默认状态 200
-    HttpResponse response = {200};
+    HttpResponse *response = http_response_new();
 
-    http_response_init(&response);
+    http_response_init(response);
     if(m_val != NULL){
         HttpHandler handle = *(HttpHandler*)m_val;
-        handle(&request, &response);
-        response_to_client(client_fd, &request, &response);
+        handle(&request, response);
+        response_to_client(client_fd, &request, response);
     }else{
-        response.status = 404;
-        response_to_client(client_fd,&request, &response);
+        response->status = 404;
+        response_to_client(client_fd,&request, response);
     }
-
+    http_response_destroy(response);
+    response = NULL;
     close(client_fd); // 处理完毕后关闭客户端连接
     return NULL;
 }
@@ -289,8 +305,8 @@ static void *handle_client(void *arg) {
  * @return HTTP 服务指针
  */
 HttpServer *http_server_new(){
-    printf("sizeof(HttpServer):%d\n",sizeof(HttpServer));
-    printf("sizeof(HttpServer*):%d\n",sizeof(HttpServer*));
+    // printf("sizeof(HttpServer):%d\n",sizeof(HttpServer));
+    // printf("sizeof(HttpServer*):%d\n",sizeof(HttpServer*));
     HttpServer *svr = malloc(sizeof(HttpServer));
     map_init(&svr->routes);
     return svr;
@@ -358,7 +374,7 @@ int http_server_start(HttpServer *server){
         if(clinet_fd > 0){
             int rs = threadpool_add_task(server->thread_pool, handle_client, &(handle_struct){server, clinet_fd});
             if(rs != 0){
-                printf("无法加入进程");
+                printf("无法加入进程,原因:%s\n",threadpool_error(rs));
                 close(clinet_fd);
             }
         }

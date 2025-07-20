@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <locale.h>
 
 #include "http/http.h"
 #include "http/route.h"
@@ -30,7 +31,7 @@ void init(){
     http_server_init(http_svr,"127.0.0.1", 8088);    
 
     // 其他初始化操作
-    printf("Initialization complete.\n");
+    printf("初始化完成.\n");
 }
 
 /**
@@ -64,66 +65,70 @@ void test(){
     //     printf("%s %d %p\n",dest, dest, dest);
     // }
 
-    printf("sizeof(char):%d\n",sizeof(char));
-    printf("sizeof(char*):%d\n",sizeof(char*));
+    // printf("sizeof(char):%d\n",sizeof(char));
+    // printf("sizeof(char*):%d\n",sizeof(char*));
     
-    printf("sizeof(int):%d\n",sizeof(int));
-    printf("sizeof(int*):%d\n",sizeof(int*));
+    // printf("sizeof(int):%d\n",sizeof(int));
+    // printf("sizeof(int*):%d\n",sizeof(int*));
 
-    printf("sizeof(long):%d\n",sizeof(long));
-    printf("sizeof(long*):%d\n",sizeof(long*));
+    // printf("sizeof(long):%d\n",sizeof(long));
+    // printf("sizeof(long*):%d\n",sizeof(long*));
 
-    printf("sizeof(float):%d\n",sizeof(float));
-    printf("sizeof(float*):%d\n",sizeof(float*));
+    // printf("sizeof(float):%d\n",sizeof(float));
+    // printf("sizeof(float*):%d\n",sizeof(float*));
     
-    printf("sizeof(double):%d\n",sizeof(double));
-    printf("sizeof(double*):%d\n",sizeof(double*));
+    // printf("sizeof(double):%d\n",sizeof(double));
+    // printf("sizeof(double*):%d\n",sizeof(double*));
 
-    char str[20];
-    printf("sizeof(str):%d\n",sizeof(str));
+    // char str[20];
+    // printf("sizeof(str):%d\n",sizeof(str));
 
-    char *str1[20];
-    printf("sizeof(str1):%d\n",sizeof(str1));
+    // char *str1[20];
+    // printf("sizeof(str1):%d\n",sizeof(str1));
 
-    // printf("sizeof(HttpServer):%d\n",sizeof(HttpServer));
-    printf("sizeof(HttpServer*):%d\n",sizeof(HttpServer*));
+    // // printf("sizeof(HttpServer):%d\n",sizeof(HttpServer));
+    // printf("sizeof(HttpServer*):%d\n",sizeof(HttpServer*));
 
-    map_char_t map;
+    // map_char_t map;
 
-    map_init(&map);
+    // map_init(&map);
 
-    map_set(&map, "1","2");
-    map_set(&map, "1","2");
+    // map_set(&map, "1","2");
+    // map_set(&map, "1","2");
     
-
     // char *new = str_append(dest, "jajsdjadadadad");
     // printf("dest:%s(%d,%p)  new:%s(%d,%p)\n",dest,dest,dest, new,new,new);
+    //   char *str1 = "Hello, ";
+    //   char str2[] = "world!";
+    //   size_t n = 5; // 只追加前5个字符
 
+    //   // 将 str2 的前5个字符追加到 str1
+    //   strncat(str1, str2, n);
 
-
-
-//   char *str1 = "Hello, ";
-//   char str2[] = "world!";
-//   size_t n = 5; // 只追加前5个字符
-
-//   // 将 str2 的前5个字符追加到 str1
-//   strncat(str1, str2, n);
-
-//   printf("追加后的字符串: %s\n", str1); // 输出: Hello, world!
-
-
-
-
+    //   printf("追加后的字符串: %s\n", str1); // 输出: Hello, world!
 }
 
+
+void repeat_string(char *dest, const char *src, size_t n) {
+    size_t len = strlen(src);
+    for (size_t i = 0; i < n; i++) {
+        strncat(dest, src, len);
+    }
+}
+
+
 int main(){
-    test();
+    setlocale(LC_ALL, ""); // 设置为当前环境的locale，通常会自动处理UTF-8编码问题
+
+    // char password[4] = {0};
+    // repeat_string(password, "123", 5);
+    // test();
 
     init(); // 调用初始化函数
     
-    // run();
+    run();
 
-    // destroy();
+    destroy();
     
     return 0;
 }

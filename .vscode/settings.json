@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.dbclient-js": "javascript",
         "cstdlib": "c",
         "queue.h": "c",
         "errno.h": "c",
@@ -15,6 +16,7 @@
         "functional": "c",
         "tuple": "c",
         "type_traits": "c",
-        "utility": "c"
+        "utility": "c",
+        "__node_handle": "c"
     }
 }

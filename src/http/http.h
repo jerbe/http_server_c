@@ -25,7 +25,7 @@ typedef struct HttpRequest HttpRequest;
 /**
  * @brief 添加请求头
  */
-char *http_request_get_header(HttpRequest *request, const char *key);
+char *http_request_get_header(HttpRequest *request,const char *key);
 
 // ====================================================================
 // =========================== RESPONSE ===============================
@@ -45,18 +45,18 @@ int http_response_write(HttpResponse *response, char *data);
 /**
  * @brief 添加头
  */
-void http_response_add_header(HttpResponse *response, char *key, char *value);
+void http_response_add_header(HttpResponse *response,const char *key, char *value);
 
 /**
  * @brief 设置
  */
-void http_response_set_header(HttpResponse *response, char *key, char *value);
+void http_response_set_header(HttpResponse *response,const char *key, char *value);
 
 /**
  * @brief 获取头
  * @return 返回头内容
  */
-char *http_response_get_header(HttpResponse *response, char *key);
+char *http_response_get_header(HttpResponse *response,const char *key);
 
 
 // ====================================================================

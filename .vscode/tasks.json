@@ -2,11 +2,10 @@
 
     "tasks": [
         {
-            "label": "debug",
+            "label": "build",
             "type": "shell",
             "command": "make",
-            "args": ["all"],
-                     
+            "args": ["all"]   
         }
         // {
         //     "label": "clean",

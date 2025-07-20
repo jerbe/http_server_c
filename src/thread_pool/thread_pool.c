@@ -121,6 +121,7 @@ ThreadPool *threadpool_create(int thread_count, int queue_capacity) {
     pool->queue = queue_create(queue_capacity);
     pool->thread_count = thread_count;
     pool->queue_capacity = queue_capacity;
+    pool->shutdown = 0; // Initialize shutdown flag to false
 
     for(int i = 0; i < pool->thread_count; i++) {
         pthread_create(&pool->threads[i], NULL, (void *(*)(void *))thread_function, pool);
@@ -185,8 +186,8 @@ int threadpool_add_task(ThreadPool *pool, void *(*task)(void *), void *arg) {
  * @param errno 错误码
  * @return 错误信息字符串
  */
-char *threadpool_error(int errno) {
-    switch(errno) {
+char *threadpool_error(int err_no) {
+    switch(err_no) {
         case ERR_NONE:
             return "No error";
         case ERR_THREADPOOL_SHUTTING_DOWN:

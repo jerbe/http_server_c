@@ -23,14 +23,14 @@ void threadpool_destroy(ThreadPool *pool);
 /// @param pool 
 /// @param task 
 /// @param arg 
-int threadpool_add_task(ThreadPool *pool, void *(*task)(void *arg), void *arg);
+int threadpool_add_task(ThreadPool *pool, void *(*task)(void *), void *arg);
 
 /**
  * @brief 获取线程池的错误信息
  * @param errno 错误码
  * @return 错误信息字符串
  */
-char *threadpool_error(int errno);
+char *threadpool_error(int err_no);
 
 
 #ifdef __cplusplus
