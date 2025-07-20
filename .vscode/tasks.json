@@ -1,0 +1,29 @@
+{
+
+    "tasks": [
+        {
+            "label": "debug",
+            "type": "shell",
+            "command": "make",
+            "args": ["all"],
+                     
+        }
+        // {
+        //     "label": "clean",
+        //     "type": "shell",
+        //     "command": "make",
+        //     "args": ["clean"],
+                     
+        // },
+        // {
+        //     "label": "debug",
+        //     "command" :"make",
+        //     "args": ["server"],
+        //     "type": "shell",
+        //     "dependsOn":[
+        //         "clean"
+        //     ]
+        // }
+    ],
+    "version": "2.0.0"
+}

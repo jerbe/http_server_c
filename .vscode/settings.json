@@ -1,0 +1,20 @@
+{
+    "files.associations": {
+        "cstdlib": "c",
+        "queue.h": "c",
+        "errno.h": "c",
+        "stdlib.h": "c",
+        "thread_pool.h": "c",
+        "pthreadtypes.h": "c",
+        "atomic": "c",
+        "http.h": "c",
+        "cerrno": "c",
+        "route.h": "c",
+        "system_error": "c",
+        "array": "c",
+        "functional": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c"
+    }
+}
