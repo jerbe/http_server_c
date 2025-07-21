@@ -31,7 +31,7 @@ typedef struct ThreadTask{
 /// @param handle 任务需要执行的方法
 /// @param arg 执行方法需要携带的参数
 /// @return 
-static ThreadTask *_queue_task_new(void *(*handle)(void *), void *arg) {
+static ThreadTask *_task_new(void *(*handle)(void *), void *arg) {
     ThreadTask *task = (ThreadTask *)malloc(sizeof(ThreadTask));
     if (task == NULL) {
         return NULL; // Memory allocation failed
@@ -45,7 +45,7 @@ static ThreadTask *_queue_task_new(void *(*handle)(void *), void *arg) {
 /// @brief 执行一个任务
 /// @param task 任务
 /// @return 任务执行后的数据
-static void* _queue_task_run(ThreadTask *task) {
+static void* _task_run(ThreadTask *task) {
     if(task == NULL) {
         return NULL;
     }
@@ -59,7 +59,7 @@ static void* _queue_task_run(ThreadTask *task) {
 /**
  * @brief 销毁任务
  */
-static void _queue_task_destroy(ThreadTask *task){
+static void _task_destroy(ThreadTask *task){
     task->arg = NULL;
     task->handle = NULL;
 }
@@ -77,7 +77,7 @@ typedef struct ThreadPool{
     int thread_count;            // Number of threads in the pool
     int queue_capacity;          // Maximum capacity of the task queue
     int shutdown;
-    ThreadPoolTaskAfterRunHandle free_handle;
+    ThreadPoolAfterTaskHandle after_task_handle;
 } ThreadPool;
 
 /**
@@ -85,7 +85,7 @@ typedef struct ThreadPool{
  * @param pool 线程池指针
  * @return 返回 NULL
  */
-static void *_thread_function(ThreadPool *pool) {
+static void *_thread_handle(ThreadPool *pool) {
     
     while (1) {
         pthread_mutex_lock(&pool->mutex);
@@ -102,14 +102,14 @@ static void *_thread_function(ThreadPool *pool) {
        ThreadTask *task;
        queue_dequeue(pool->queue, (void *)&task);
         if(task != NULL) {
-           _queue_task_run(task);
-           if(pool->free_handle != NULL){
-                pool->free_handle(task->arg);
+           _task_run(task);
+           if(pool->after_task_handle != NULL){
+                pool->after_task_handle(task->arg);
            }
-           _queue_task_destroy(task);
+           _task_destroy(task);
            free(task);
-           task = NULL;
         }
+        task = NULL;
 
         pthread_mutex_unlock(&pool->mutex);
     }
@@ -120,7 +120,7 @@ static void *_thread_function(ThreadPool *pool) {
 /// @param thread_count 
 /// @param queue_capacity 
 /// @return 
-ThreadPool *threadpool_new(int thread_count, int queue_capacity, ThreadPoolTaskAfterRunHandle free_handle) {
+ThreadPool *threadpool_new(int thread_count, int queue_capacity, ThreadPoolAfterTaskHandle after_task_handle) {
     ThreadPool *pool = (ThreadPool *)malloc(sizeof(ThreadPool));
     if (pool == NULL) {
         return NULL; // Memory allocation failed
@@ -139,10 +139,10 @@ ThreadPool *threadpool_new(int thread_count, int queue_capacity, ThreadPoolTaskA
     pool->thread_count = thread_count;
     pool->queue_capacity = queue_capacity;
     pool->shutdown = 0; // Initialize shutdown flag to false
-    pool->free_handle = free_handle;
+    pool->after_task_handle = after_task_handle;
 
     for(int i = 0; i < pool->thread_count; i++) {
-        pthread_create(&pool->threads[i], NULL, (void *(*)(void *))_thread_function, pool);
+        pthread_create(&pool->threads[i], NULL, (void *(*)(void *))_thread_handle, pool);
     }
 
     return pool;
@@ -185,17 +185,24 @@ int threadpool_add_task(ThreadPool *pool, void *(*task_handle)(void *), void *ar
         return ERR_THREADPOOL_QUEUE_FULL;
     }
 
-    ThreadTask *queue_task = _queue_task_new(task_handle, arg);
+    ThreadTask *queue_task = _task_new(task_handle, arg);
     if (queue_task == NULL) {
         return ERR_THREADPOOL_MALLOC_TASK_FAIL;
     };
 
     pthread_mutex_lock(&pool->mutex);
-    if(queue_enqueue(pool->queue, queue_task) == 0){
-        pthread_cond_signal(&pool->wakeup_cond);
+    if(queue_enqueue(pool->queue, queue_task) < 0){
+        _task_destroy(queue_task);
+        free(queue_task);
+        queue_task = NULL;
+        pthread_mutex_unlock(&pool->mutex);
+        return ERR_THREADPOOL_QUEUE_FULL;
     }
+
+    queue_task = NULL;
+    pthread_cond_signal(&pool->wakeup_cond);
     pthread_mutex_unlock(&pool->mutex);
-    return SUCCESS;
+    return SUCCESS;    
 }
 
 /**

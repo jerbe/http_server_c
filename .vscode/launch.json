@@ -6,7 +6,7 @@
     
     "configurations": [
         {
-            "name": "Launch",
+            "name": "Debug Project (lldb)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/server",
@@ -25,11 +25,10 @@
                     "name": "LC_ALL",
                     "value": "en_US.UTF-8"
                 }
-            ],
-            "console": "integratedTerminal"
+            ]
         },
         {
-            "name": "Debug Project",
+            "name": "Debug Project (gdb)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/server",

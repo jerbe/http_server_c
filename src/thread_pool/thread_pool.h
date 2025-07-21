@@ -12,13 +12,13 @@ typedef struct ThreadPool ThreadPool;
 /**
  * @brief 线程池完成执行方法
  */
-typedef void(*ThreadPoolTaskAfterRunHandle)(void *);
+typedef void(*ThreadPoolAfterTaskHandle)(void *);
 
 /// @brief 创建线程池结构体
 /// @param thread_count 
 /// @param queue_capacity 
 /// @return 
-ThreadPool *threadpool_new(int thread_count, int queue_capacity, ThreadPoolTaskAfterRunHandle free_handle);
+ThreadPool *threadpool_new(int thread_count, int queue_capacity, ThreadPoolAfterTaskHandle after_task_handle);
 
 /// @brief 销毁线程池
 /// @param pool 
