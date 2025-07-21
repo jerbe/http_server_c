@@ -31,7 +31,7 @@ typedef struct ThreadTask{
 /// @param handle 任务需要执行的方法
 /// @param arg 执行方法需要携带的参数
 /// @return 
-static ThreadTask *queue_task_create(void *(*handle)(void *), void *arg) {
+static ThreadTask *_queue_task_new(void *(*handle)(void *), void *arg) {
     ThreadTask *task = (ThreadTask *)malloc(sizeof(ThreadTask));
     if (task == NULL) {
         return NULL; // Memory allocation failed
@@ -45,7 +45,7 @@ static ThreadTask *queue_task_create(void *(*handle)(void *), void *arg) {
 /// @brief 执行一个任务
 /// @param task 任务
 /// @return 任务执行后的数据
-static void* queue_task_run(ThreadTask *task) {
+static void* _queue_task_run(ThreadTask *task) {
     if(task == NULL) {
         return NULL;
     }
@@ -56,7 +56,17 @@ static void* queue_task_run(ThreadTask *task) {
     return NULL;
 }
 
+/**
+ * @brief 销毁任务
+ */
+static void _queue_task_destroy(ThreadTask *task){
+    task->arg = NULL;
+    task->handle = NULL;
+}
 
+// =========================================================================
+// ============================== THREAD POOL  =============================
+// =========================================================================
 
 /// @brief 线程池结构体
 typedef struct ThreadPool{
@@ -67,6 +77,7 @@ typedef struct ThreadPool{
     int thread_count;            // Number of threads in the pool
     int queue_capacity;          // Maximum capacity of the task queue
     int shutdown;
+    ThreadPoolTaskAfterRunHandle free_handle;
 } ThreadPool;
 
 /**
@@ -74,11 +85,11 @@ typedef struct ThreadPool{
  * @param pool 线程池指针
  * @return 返回 NULL
  */
-static void *thread_function(ThreadPool *pool) {
-    ThreadTask *task;
+static void *_thread_function(ThreadPool *pool) {
+    
     while (1) {
         pthread_mutex_lock(&pool->mutex);
-        while (queue_is_full(pool->queue) && !pool->shutdown) {
+        while (queue_is_empty(pool->queue) && !pool->shutdown) {
             pthread_cond_wait(&pool->wakeup_cond, &pool->mutex);
         }
 
@@ -88,10 +99,16 @@ static void *thread_function(ThreadPool *pool) {
             break;
         }
 
-        queue_dequeue(pool->queue, (void *)&task);
+       ThreadTask *task;
+       queue_dequeue(pool->queue, (void *)&task);
         if(task != NULL) {
-           queue_task_run(task);
-           free(task); // Free the task after execution
+           _queue_task_run(task);
+           if(pool->free_handle != NULL){
+                pool->free_handle(task->arg);
+           }
+           _queue_task_destroy(task);
+           free(task);
+           task = NULL;
         }
 
         pthread_mutex_unlock(&pool->mutex);
@@ -103,7 +120,7 @@ static void *thread_function(ThreadPool *pool) {
 /// @param thread_count 
 /// @param queue_capacity 
 /// @return 
-ThreadPool *threadpool_create(int thread_count, int queue_capacity) {
+ThreadPool *threadpool_new(int thread_count, int queue_capacity, ThreadPoolTaskAfterRunHandle free_handle) {
     ThreadPool *pool = (ThreadPool *)malloc(sizeof(ThreadPool));
     if (pool == NULL) {
         return NULL; // Memory allocation failed
@@ -118,13 +135,14 @@ ThreadPool *threadpool_create(int thread_count, int queue_capacity) {
     pthread_mutex_init(&pool->mutex, NULL);
     pthread_cond_init(&pool->wakeup_cond, NULL);
 
-    pool->queue = queue_create(queue_capacity);
+    pool->queue = queue_new(queue_capacity);
     pool->thread_count = thread_count;
     pool->queue_capacity = queue_capacity;
     pool->shutdown = 0; // Initialize shutdown flag to false
+    pool->free_handle = free_handle;
 
     for(int i = 0; i < pool->thread_count; i++) {
-        pthread_create(&pool->threads[i], NULL, (void *(*)(void *))thread_function, pool);
+        pthread_create(&pool->threads[i], NULL, (void *(*)(void *))_thread_function, pool);
     }
 
     return pool;
@@ -148,16 +166,16 @@ void threadpool_destroy(ThreadPool *pool) {
     pthread_mutex_destroy(&pool->mutex);
     pthread_cond_destroy(&pool->wakeup_cond);
     free(pool->threads);
-    queue_destroy(pool->queue);
+    queue_destroy(pool->queue, 1);
     free(pool);
 }
 
 /// @brief 添加任务到线程池
 /// @param pool 
-/// @param task 
+/// @param task_handle 任务执行方法 
 /// @param arg 
-int threadpool_add_task(ThreadPool *pool, void *(*task)(void *), void *arg) {
-     if (pool == NULL || task == NULL) return ERR_NONE;
+int threadpool_add_task(ThreadPool *pool, void *(*task_handle)(void *), void *arg) {
+     if (pool == NULL || task_handle == NULL) return ERR_NONE;
 
     if(pool->shutdown) {
         return ERR_THREADPOOL_SHUTTING_DOWN;
@@ -167,14 +185,13 @@ int threadpool_add_task(ThreadPool *pool, void *(*task)(void *), void *arg) {
         return ERR_THREADPOOL_QUEUE_FULL;
     }
 
-    ThreadTask *queue_task = queue_task_create(task, arg);
+    ThreadTask *queue_task = _queue_task_new(task_handle, arg);
     if (queue_task == NULL) {
         return ERR_THREADPOOL_MALLOC_TASK_FAIL;
     };
 
     pthread_mutex_lock(&pool->mutex);
-    if(queue_enqueue(pool->queue, queue_task) != 0){
-        free(queue_task);
+    if(queue_enqueue(pool->queue, queue_task) == 0){
         pthread_cond_signal(&pool->wakeup_cond);
     }
     pthread_mutex_unlock(&pool->mutex);

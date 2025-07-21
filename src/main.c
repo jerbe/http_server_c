@@ -118,11 +118,10 @@ void repeat_string(char *dest, const char *src, size_t n) {
 
 
 int main(){
-    setlocale(LC_ALL, ""); // 设置为当前环境的locale，通常会自动处理UTF-8编码问题
-
-    // char password[4] = {0};
-    // repeat_string(password, "123", 5);
-    // test();
+    // setlocale(LC_ALL, ""); // 设置为当前环境的locale，通常会自动处理UTF-8编码问题
+    
+    
+    
 
     init(); // 调用初始化函数
     

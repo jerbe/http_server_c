@@ -23,7 +23,7 @@ typedef struct Queue {
 /// @brief 创建一个队列
 /// @param capacity 
 /// @return 
-Queue *queue_create(int capacity) {
+Queue *queue_new(int capacity) {
     Queue *queue = (Queue *)malloc(sizeof(Queue));
     if (queue == NULL) {
         return NULL; // Memory allocation failed
@@ -48,7 +48,7 @@ Queue *queue_create(int capacity) {
 
 /// @brief 销毁一个队列
 /// @param queue 
-void queue_destroy(Queue *queue) {
+void queue_destroy(Queue *queue,int free_entries) {
     if (queue == NULL || queue->destroyed) {
         return; // If the queue is NULL or already destroyed, do nothing
     }
@@ -56,6 +56,15 @@ void queue_destroy(Queue *queue) {
     queue->destroyed = 1; // Set the destroyed flag to 1
 
     if (queue->data != NULL) {
+        if(free_entries){
+            for(int i=0; i< queue->capacity;i++){
+                if(queue->data[i] != NULL){
+                    free(queue->data[i]);
+                }
+            }
+        }
+        
+
         free(queue->data);
         queue->data = NULL;
     }
@@ -68,11 +77,11 @@ void queue_destroy(Queue *queue) {
     free(queue);
 }
 
-/// @brief 将一个任务入队，加入队列最后一个
+/// @brief 将一个条目入队，加入队列最后一个
 /// @param queue 队列
-/// @param task 任务
-/// @return 是否成功入列 1：是 0：否
-int queue_enqueue(Queue *queue, void *task) {
+/// @param entry 条目
+/// @return 是否成功入列 0：是 !=：否
+int queue_enqueue(Queue *queue, void *entry) {
     if (queue_is_full(queue)) {
         return -1;
     }
@@ -82,33 +91,34 @@ int queue_enqueue(Queue *queue, void *task) {
         pthread_mutex_unlock(&queue->mutex); // Unlock the mutex before returning
         return -1; // If the queue is destroyed, do not enqueue
     }
-    queue->data[queue->rear] = task;
+
+    queue->data[queue->rear] = entry;
     queue->rear = (queue->rear + 1) % queue->capacity;
     queue->size++;
     pthread_mutex_unlock(&queue->mutex); // Unlock the mutex
     return 0;
 }
 
-/// @brief 将一个任务出队，取出丢列第一个任务
+/// @brief 将一个条目出队，取出丢列第一个条目
 /// @param queue 需要被出队的队列
-/// @param task 成功
+/// @param entry 成功
 /// @return 是否成功出列 1：是 0：否
-int queue_dequeue(Queue *queue, void **task) {
+int queue_dequeue(Queue *queue, void **entry) {
     if (queue_size(queue) == 0) {
-        *task = NULL;
+        *entry = NULL;
         return -1;
     }
 
     pthread_mutex_lock(&queue->mutex); // Lock the mutex for thread safety
     if (queue->destroyed) {
         pthread_mutex_unlock(&queue->mutex); // Unlock the mutex before returning
-        free(task);
-        *task = NULL; // If the queue is destroyed, set task to NULL
+        *entry = NULL; // If the queue is destroyed, set entry to NULL
         return -1; // If the queue is destroyed, do not dequeue
     }
-    *task = queue->data[queue->front];
+    *entry = queue->data[queue->front];
     queue->front = (queue->front + 1) % queue->capacity;
     queue->size--;
+    queue->data[queue->front]= NULL;
     pthread_mutex_unlock(&queue->mutex); // Unlock the mutex
     return 0;
 }
@@ -116,37 +126,44 @@ int queue_dequeue(Queue *queue, void **task) {
 /**
  * @brief 获取队列的头部元素
  * @param queue 需要获取头部元素的队列
- * @param task 存储头部元素的指针
- * @return 如果队列不为空，返回1并将头部元素存储在task中；如果队列为空，返回0并将task设置为NULL
+ * @param entry 存储头部元素的指针
+ * @return 如果队列不为空，返回1并将头部元素存储在entry中；如果队列为空，返回0并将entry设置为NULL
  */
-int queue_peek(Queue *queue, void **task) {
+int queue_peek(Queue *queue, void **entry) {
     if (queue == NULL || queue->destroyed) {
-        *task = NULL; // If the queue is NULL or destroyed, set task to NULL
+        *entry = NULL; // If the queue is NULL or destroyed, set entry to NULL
         return -1; 
     }
 
     if (queue->size == 0) {
-        *task = NULL;
+        *entry = NULL;
         return -1; 
     }
     pthread_mutex_lock(&queue->mutex); // Lock the mutex for thread safety
     if (queue->destroyed) {
         pthread_mutex_unlock(&queue->mutex); // Unlock the mutex before returning
-        free(task);
-        *task = NULL; // If the queue is destroyed, set task to NULL
+        free(entry);
+        *entry = NULL; // If the queue is destroyed, set entry to NULL
         return -1; // If the queue is destroyed, do not peek
     }
-    *task = queue->data[queue->front]; // Get the front element
+    *entry = queue->data[queue->front]; // Get the front element
     pthread_mutex_unlock(&queue->mutex); // Unlock the mutex
     return 0; // Successfully retrieved the front element   
 }       
 
+/// @brief 判断队列是否为空
+/// @param queue 需要判断的队列
+/// @return >=1:空 0:非空
+int queue_is_empty(const Queue *queue) {
+    return queue->rear == queue->front;
+}
+
+
 /// @brief 判断队列是否已经满了
 /// @param queue 需要判断的队列
 /// @return >=1:满 0:未满
-int queue_is_full(const Queue *queue) {
-    int r = queue->size == queue->capacity;
-    return r; 
+int queue_is_full(const Queue *queue){
+    return ((queue->rear+1)%queue->capacity) == queue->front;
 }
 
 

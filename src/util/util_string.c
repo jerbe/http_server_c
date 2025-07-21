@@ -10,5 +10,5 @@
 char *str_append(const char *dest, const char *src){
     int len = strlen(dest) + strlen(src)+1;
     char *new = malloc(sizeof(char)*len);
-    return strcat(new,src);
+    return strcat(strcpy(new,dest),src);
 }

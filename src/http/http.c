@@ -22,35 +22,37 @@
  * @brief 设置头部信息，直接覆盖原先数据
  */
 static void _http_set_header(map_str_t *map,const char *key, char *value){
-    map_set(map, key, value);
+    size_t len = sizeof(char) * strlen(value)+1;
+    char *tmp = malloc(len);
+    map_set(map, key, memcpy(tmp,value,len));
 }
 
 /**
  * @brief 添加头部信息
  */
 static void _http_add_header(map_str_t *map,const char *key, char *value){
-    char *old = (char *)map_get(map, key);
+    char **old = (char **)map_get(map, key);
     if(old == NULL)
     {
         _http_set_header(map,key, value);
         return;
     }
-
-    char *new = str_append(old, value);
+    char *old_val = *old;
+    char *new = str_append(*old, value);
     map_set(map, key, new);
-    free(old);
+    free(old_val);
 }
 
 
 /**
  * @brief 设置头部信息
  */
-static char * _http_get_header(map_str_t *map,const char *key){
-    char *val = (char *)map_get(map, key);
+static char *_http_get_header(map_str_t *map,const char *key){
+    char **val = (char **)map_get(map, key);
     if(val == NULL){
         return "";
     }
-    return val;
+    return *val;
 }
 
 
@@ -75,6 +77,65 @@ typedef struct HttpRequest {
 } HttpRequest;
 
 /**
+ * @brief 初始化请求
+ */
+static int http_request_init(HttpRequest *request, int client_fd){
+    request->client_fd  = client_fd;
+
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+
+    if (getpeername(client_fd, (struct sockaddr *)&addr, &addr_len) == -1) {
+       return -1;
+    }
+
+    char ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &addr.sin_addr, ip_str, sizeof(ip_str));
+    request->remote_addr = malloc(sizeof(char)*INET_ADDRSTRLEN+1);
+    strcpy(request->remote_addr, ip_str);
+
+    int port = ntohs(addr.sin_port);
+    request->remote_port = port;
+
+    int host_len = snprintf(NULL,0,"%s:%d",ip_str, port);
+    request->remote_host = malloc(host_len+1);
+    sprintf(request->remote_host, "%s:%d",ip_str, port);
+
+    int bytes = read(client_fd, request->buf, sizeof(request->buf)-1);
+    if(bytes <= 0){
+        // printf("链接已关闭; IP:%s Port:%d\n",request->remote_addr, request->remote_port);
+        return -1;
+    }
+
+    // printf("接收到客户端请求; IP:%s Port:%d\n",request->remote_addr, request->remote_port);
+
+    // 读取buf
+    sscanf(request->buf, "%15s %255s", request->method, request->path);
+    return 0;
+}
+
+/**
+ * @brief 销毁请求头
+ */
+static void http_request_destroy(HttpRequest *request){
+    request->client_fd=0;
+    request->remote_port=0;
+
+    if(request->remote_addr != NULL){
+        free(request->remote_addr);
+        request->remote_addr = NULL;
+    }
+
+    if(request->remote_host != NULL){
+        free(request->remote_host);
+        request->remote_host = NULL;
+    }
+
+    map_deinit(&request->header);
+    request = NULL;
+}
+
+/**
  * @brief 添加请求头
  */
 static void _http_request_add_header(HttpRequest *request,const char *key, char *value){
@@ -87,6 +148,7 @@ static void _http_request_add_header(HttpRequest *request,const char *key, char 
 char *http_request_get_header(HttpRequest *request,const char *key){
     return _http_get_header(&request->header,key);
 }
+
 
 
 // ====================================================================
@@ -127,6 +189,7 @@ static void http_response_destroy(HttpResponse *response){
         free(response->body);
     }
     response->body =NULL;
+    response->status = 0;
 
     map_deinit(&response->header);
 }
@@ -211,17 +274,24 @@ static void response_to_client(int client_fd, HttpRequest *request, HttpResponse
     char len_str[10];
     snprintf(len_str, sizeof(len_str), "%zu", strlen(body));
     http_response_set_header(response,"Content-Length", len_str);
+    for(int i =0;i<100;i++){
+        http_response_add_header(response,"Content-Length", len_str);
+    }
 
     char *header_str = malloc(sizeof(char*)*255);
     map_iter_t header_iter = map_iter();
     const char *key;
     while ((key = map_next(&response->header, &header_iter)) != NULL)
     {  
-       char *tmp = header_str;
-       header_str = str_append(key,": ");
-       header_str = str_append(header_str,_http_get_header(&response->header,key));
-       header_str = str_append(header_str,"\r\n");
-       free(tmp);
+        char *tmp = header_str;
+        header_str = str_append(key,": ");
+        free(tmp);
+        tmp = header_str;
+        header_str = str_append(header_str,_http_get_header(&response->header,key));
+        free(tmp);
+        tmp = header_str;
+        header_str = str_append(header_str,"\r\n");
+        free(tmp);
     }
 
     sprintf(buf,
@@ -241,63 +311,46 @@ static void response_to_client(int client_fd, HttpRequest *request, HttpResponse
  * @brief 处理客户端
  */
 static void *handle_client(void *arg) {
-    handle_struct hs = *(handle_struct *)arg;
-    int client_fd = hs.client_fd;
-
-    struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
-
-    if (getpeername(client_fd, (struct sockaddr *)&addr, &addr_len) == -1) {
-       return NULL;
-    }
+    handle_struct *hs = (handle_struct *)arg;
+    int client_fd = hs->client_fd;
 
     HttpRequest request;
-    request.client_fd  = client_fd;
-
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, ip_str, sizeof(ip_str));
-    int port = ntohs(addr.sin_port);
-    int host_len = snprintf(NULL,0,"%s:%d",ip_str,port);
-
-    request.remote_addr = ip_str;
-    request.remote_port = port;
-    request.remote_host = malloc(host_len+1);
-    sprintf(request.remote_host, "%s:%d",ip_str,port);
-
-    int bytes = read(client_fd, request.buf, sizeof(request.buf)-1);
-    if(bytes <= 0){
-        printf("链接已关闭; IP:%s Port:%d\n",request.remote_addr, request.remote_port);
-        return NULL;
-    }
-
-    printf("接收到客户端请求; IP:%s Port:%d\n",request.remote_addr, request.remote_port);
-
-    // 读取buf
-    sscanf(request.buf, "%15s %255s", request.method, request.path);
-
+    http_request_init(&request,client_fd);
+    
     char *routeTmp = "%s %s";
-    int l = snprintf(NULL, 0,routeTmp, request.method, request.path);
-    char *route = malloc(sizeof(char)*l+1);
-    sprintf(route,routeTmp, request.method, request.path);
+    int l = snprintf(NULL, 0, routeTmp, request.method, request.path);
+    char route[l+1];
+    sprintf(route, routeTmp, request.method, request.path);
 
-    void *m_val = map_get(&hs.svr->routes, route);
-
+    void *m_val = map_get(&hs->svr->routes, route);
     // 默认状态 200
-    HttpResponse *response = http_response_new();
+    HttpResponse response;
+    http_response_init(&response);
 
-    http_response_init(response);
     if(m_val != NULL){
         HttpHandler handle = *(HttpHandler*)m_val;
-        handle(&request, response);
-        response_to_client(client_fd, &request, response);
+        handle(&request, &response);
+        response_to_client(client_fd, &request, &response);
     }else{
-        response->status = 404;
-        response_to_client(client_fd,&request, response);
+        response.status = 404;
+        response_to_client(client_fd,&request, &response);
     }
-    http_response_destroy(response);
-    response = NULL;
+    http_request_destroy(&request);
+    http_response_destroy(&response);
+
     close(client_fd); // 处理完毕后关闭客户端连接
     return NULL;
+}
+
+/**
+ * @brief 
+ */
+void free_client_handle(void *arg){
+    handle_struct *s = (handle_struct *)arg;
+    s->client_fd =0;
+    s->svr = NULL;
+    free(s);
+    s = NULL;
 }
 
 /**
@@ -348,21 +401,28 @@ int http_server_start(HttpServer *server){
         .sin_addr.s_addr = inet_addr(server->host) // 将主机地址转换为网络字节序
     };
 
+    int yes = 1;
+    int rs = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    if (rs < 0) {
+        printf("设置socket失败: 原因:%s",strerror(errno));
+        return rs;
+    }
+
     // 绑定 socket 到本地地址和端口，此时还未监听
-    int brs = bind(socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if(brs == -1){
+    rs = bind(socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    if(rs < 0){
         printf("绑定失败: 原因:%s",strerror(errno));
-        return brs;
+        return rs;
     }
 
     // 开始监听连接，最大连接等待队列长度为 1000
-    int lrs = listen(socket_fd, 1000); // 监听队列长度为1000
-    if(lrs == -1){
+    rs = listen(socket_fd, 1000); // 监听队列长度为1000
+    if(rs < 0){
         printf("监听失败: 原因:%s",strerror(errno));
-        return lrs;
+        return rs;
     }
 
-    server->thread_pool = threadpool_create(10, 1000); // 创建线程池，10个线程，最大任务数1000
+    server->thread_pool = threadpool_new(10, 2, free_client_handle); // 创建线程池，10个线程，最大任务数1000
     if (server->thread_pool == NULL) {
         close(socket_fd); // 线程池创建失败，关闭套接字
         return -1;
@@ -372,11 +432,16 @@ int http_server_start(HttpServer *server){
     {
         int clinet_fd = accept(socket_fd, NULL, NULL); // 接受连接请求
         if(clinet_fd > 0){
-            int rs = threadpool_add_task(server->thread_pool, handle_client, &(handle_struct){server, clinet_fd});
+            handle_struct *handle_arg = malloc(sizeof(handle_struct));
+            handle_arg->client_fd = clinet_fd;
+            handle_arg->svr = server;
+            int rs = threadpool_add_task(server->thread_pool, handle_client, handle_arg);
             if(rs != 0){
                 printf("无法加入进程,原因:%s\n",threadpool_error(rs));
+                free_client_handle(handle_arg);
                 close(clinet_fd);
             }
+            handle_arg = NULL;
         }
     }
 
