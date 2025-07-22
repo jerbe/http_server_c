@@ -17,6 +17,10 @@
         "tuple": "c",
         "type_traits": "c",
         "utility": "c",
-        "__node_handle": "c"
+        "__node_handle": "c",
+        "sys.h": "c",
+        "initializer_list": "c",
+        "map.h": "c",
+        "string.h": "c"
     }
 }

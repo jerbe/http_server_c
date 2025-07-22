@@ -12,8 +12,9 @@
 #include "../util/map.h"
 #include "../util/util_string.h"
 
-
-#define BUFF_SIZE 4096
+#define MAX_LINE_SIZE 1024
+#define MAX_HEADER_SIZE 4096
+#define MAX_BODY_SIZE 1048576
 
 // ====================================================================
 // ============================ COMMON ================================
@@ -21,33 +22,39 @@
 /**
  * @brief 设置头部信息，直接覆盖原先数据
  */
-static void _http_set_header(map_str_t *map,const char *key, char *value){
+static void _http_set_header(map_str_t *map, const char *key, char *value){
     size_t len = sizeof(char) * strlen(value)+1;
     char *tmp = malloc(len);
+    memset(tmp,0,len);
     map_set(map, key, memcpy(tmp, value, len));
 }
 
 /**
  * @brief 添加头部信息
  */
-static void _http_add_header(map_str_t *map,const char *key, char *value){
+static void _http_add_header(map_str_t *map, const char *key, char *value){
     char **old = (char **)map_get(map, key);
     if(old == NULL)
     {
-        _http_set_header(map,key, value);
+        _http_set_header(map, key, value);
         return;
     }
     char *old_val = *old;
     char *new = str_append(*old, value);
-    map_set(map, key, new);
     free(old_val);
+    old_val = new;
+    
+    new = str_append(new, ";");
+    free(old_val);
+    map_set(map, key, new);
+    
 }
 
 
 /**
  * @brief 设置头部信息
  */
-static char *_http_get_header(map_str_t *map,const char *key){
+static char *_http_get_header(map_str_t *map, const char *key){
     char **val = (char **)map_get(map, key);
     if(val == NULL){
         return "";
@@ -85,14 +92,29 @@ typedef struct HttpRequest {
     char *remote_addr;
     char *remote_host;
 
-    char method[16];
+    char method[8];
     char path[255];
 
     map_str_t header;
+    map_str_t get_data;
 
-    char buf[BUFF_SIZE];
+    // get 数据已经初始化过
+    char get_data_init;
+
+
+    char *body_data;
     
 } HttpRequest;
+
+
+static void _pull_end_flag(char *flag, size_t len, char c){
+    if(len > 1){
+        for(int i = 0; i < len-1;i++){
+            flag[i]=flag[i+1];
+        }
+    }
+    flag[len-1] = c;
+}
 
 /**
  * @brief 初始化请求
@@ -120,18 +142,118 @@ static int http_request_init(HttpRequest *request, int client_fd){
     request->remote_host = malloc(host_len+1);
     sprintf(request->remote_host, "%s:%d",ip_str, port);
 
-    int bytes = read(client_fd, request->buf, sizeof(request->buf)-1);
-    if(bytes <= 0){
-        // printf("链接已关闭; IP:%s Port:%d\n",request->remote_addr, request->remote_port);
+    
+    // 读取第一行 直到第一个 \r\n
+    char line_data[MAX_LINE_SIZE];
+    int line_read = 0;
+    char line_end_flag[2] = {0};
+    for(;line_read < MAX_LINE_SIZE-2;){
+        int n = read(client_fd, line_data+line_read,1);
+        if(n <= 0){
+            return -1;
+        }
+
+        _pull_end_flag(line_end_flag, 2, line_data[line_read]);
+        line_read += n;
+
+        if(line_read >=2 && strncmp(line_end_flag,"\r\n",2) == 0){
+            break;
+        }
+    }
+    line_data[line_read] = '\0';
+    if(!sscanf(line_data,"%7s %1024s ",request->method,request->path)){
         return -1;
     }
 
-    // printf("接收到客户端请求; IP:%s Port:%d\n",request->remote_addr, request->remote_port);
+    // 1. 读取请求头（直到 \r\n\r\n）
+    char header_data[MAX_HEADER_SIZE];
+    int header_read = 0;
+    char header_end_flag[4] = {0};
+    int header_line_offset = 0;
+    for(;header_read < MAX_HEADER_SIZE-4;){
+        int n = read(client_fd, header_data + header_read,1);
+        if(n <= 0){
+            return -1;
+        }
+        _pull_end_flag(line_end_flag, 2, header_data[header_read]);
+        _pull_end_flag(header_end_flag, 4, header_data[header_read]);
 
-    // 读取buf
-    sscanf(request->buf, "%15s %255s", request->method, request->path);
+        header_read += n;
+        // 行结束
+        if(strncmp(line_end_flag,"\r\n",2) == 0){
+            int l = header_read - header_line_offset-1;
+            char *header_entry = malloc(sizeof(char)+l);
+            strcpy(header_entry, header_data + header_line_offset);
+            header_entry[l-1] = '\0';
 
+            // 查找第一个冒号位置
+            char *col = strchr(header_entry,':');
+            if(col){
+                *col = '\0';  // 将冒号填充成字符串结束
+                char *key = header_entry;
+                char *value = col+1;
+
+                while (*value == ' '|| *value == '\r' || *value == '\n')// 如果是空白或者换行，则指针往前推
+                {
+                    value++;
+                }
+
+                _http_add_header(&request->header, key, value);
+            }
+
+            free(header_entry);
+            header_entry = NULL;
+            header_line_offset = header_read;
+        }
+        
+        // strstr 找寻字符串第一次出现
+        if(header_read >= 4 && strncmp(header_end_flag,"\r\n\r\n",4) == 0){
+            break;
+        }
+    }
+    header_data[header_read] = '\0';
+
+    map_iter_t iter = map_iter();
+    const *key = map_next(&request->header, &iter);
+    // while ((key = map_next(&request->header,&iter) != NULL))
+    // {
+    //     printf("%s:%s\n",key,_http_get_header(&request->header,key));
+    // }
     
+
+
+
+
+    // 遍历 Content-Length 查找body长度
+    char *content_length_str = _http_get_header(&request->header,"Content-Length");
+    int content_length = 0;
+    if(content_length_str){
+        content_length = atoi(content_length_str);
+        if(content_length < 0 || content_length > MAX_BODY_SIZE){
+            return -1;
+        }
+    }
+
+    // 读取body
+    size_t content_length_t = sizeof(char)*content_length+1;
+    char *body = malloc(content_length_t);
+    memset(body, 0, content_length_t);
+    if(body == NULL){
+        return -1;
+    }
+
+    int body_read = 0;
+    for(;body_read < content_length;){
+        int n = read(client_fd, body+body_read, content_length-body_read);
+        if(n <= 0){
+            free(body);
+            return -1;
+        }
+        body_read += n;
+    }
+
+    request->body_data = body;
+
     return 0;
 }
 
@@ -171,7 +293,32 @@ char *http_request_get_header(HttpRequest *request,const char *key){
     return _http_get_header(&request->header,key);
 }
 
+/**
+ * @brief 迭代请求头
+ * @return 返回key，可能NULL
+ */
+const char *http_request_iter_header(HttpRequest *request, map_iter_t *iter_t){
+    return map_next(&request->header, iter_t);
+}
 
+/**
+ * @brief 获取指定的请求参数
+ */
+char *http_request_get(HttpRequest *request, const char *key){
+    // 取得值
+    char **value = map_get(&request->get_data,key);
+    if(value != NULL){
+        return *value;
+    }
+
+    // 判断是否已经有系列化过
+    if(value == NULL && request->get_data_init){
+        return NULL;
+    }
+
+    // TODO 需要初始化
+    return NULL;
+}
 
 // ====================================================================
 // =========================== RESPONSE ===============================
@@ -276,7 +423,7 @@ typedef struct handle_struct{
  * @brief 客户端返回
  */
 static void response_to_client(int client_fd, HttpRequest *request, HttpResponse *response){
-    char buf[BUFF_SIZE];
+    char buf[MAX_HEADER_SIZE];
     char *status_msg;
     char *body = response->body;
 

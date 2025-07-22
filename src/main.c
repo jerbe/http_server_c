@@ -3,7 +3,10 @@
 #include <time.h>
 #include <string.h>
 #include <locale.h>
+#include <pthread.h>
+#include <unistd.h>
 
+#include "util/sys.h"
 #include "http/http.h"
 #include "http/route.h"
 #include "util/util_string.h"
@@ -15,9 +18,26 @@ HttpServer *http_svr;
  * @brief 初始化随机数种子
  * @details 该函数用于初始化随机数生成器的种子
  */
-void init_rand(){
+void rand_init(){
     time_t seed = time(NULL);
     srand(seed);
+}
+
+
+void *print_system(){
+    for(;;){
+        print_memory_usage();
+        sleep(5);
+    }
+}
+
+/**
+ * @brief 初始化打印系统数据
+ */
+void print_system_init(){
+    pthread_t pt;
+
+    pthread_create(&pt,NULL, print_system,NULL);
 }
 
 /**
@@ -25,10 +45,12 @@ void init_rand(){
  * @details 该函数用于初始化程序的全局状态，包括随机数种子等
  */
 void init(){
-    init_rand();
+    rand_init();
 
     http_svr = http_server_new();
     http_server_init(http_svr,"127.0.0.1", 8088);    
+
+    print_system_init();
 
     // 其他初始化操作
     printf("初始化完成.\n");
@@ -65,20 +87,20 @@ void test(){
     //     printf("%s %d %p\n",dest, dest, dest);
     // }
 
-    // printf("sizeof(char):%d\n",sizeof(char));
-    // printf("sizeof(char*):%d\n",sizeof(char*));
+    printf("sizeof(char):%ld\n",sizeof(char));
+    printf("sizeof(char*):%ld\n",sizeof(char*));
     
-    // printf("sizeof(int):%d\n",sizeof(int));
-    // printf("sizeof(int*):%d\n",sizeof(int*));
+    printf("sizeof(int):%ld\n",sizeof(int));
+    printf("sizeof(int*):%ld\n",sizeof(int*));
 
-    // printf("sizeof(long):%d\n",sizeof(long));
-    // printf("sizeof(long*):%d\n",sizeof(long*));
+    printf("sizeof(long):%ld\n",sizeof(long));
+    printf("sizeof(long*):%ld\n",sizeof(long*));
 
-    // printf("sizeof(float):%d\n",sizeof(float));
-    // printf("sizeof(float*):%d\n",sizeof(float*));
+    printf("sizeof(float):%ld\n",sizeof(float));
+    printf("sizeof(float*):%ld\n",sizeof(float*));
     
-    // printf("sizeof(double):%d\n",sizeof(double));
-    // printf("sizeof(double*):%d\n",sizeof(double*));
+    printf("sizeof(double):%ld\n",sizeof(double));
+    printf("sizeof(double*):%ld\n",sizeof(double*));
 
     // char str[20];
     // printf("sizeof(str):%d\n",sizeof(str));
@@ -119,7 +141,7 @@ void repeat_string(char *dest, const char *src, size_t n) {
 
 int main(){
     // setlocale(LC_ALL, ""); // 设置为当前环境的locale，通常会自动处理UTF-8编码问题
-    
+    test();
     
     
 
