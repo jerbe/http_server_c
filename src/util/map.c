@@ -34,7 +34,7 @@ static map_node_t *map_newnode(const char *key, void *value, int vsize) {
   int voffset = ksize + ((sizeof(void*) - ksize) % sizeof(void*));
   node = malloc(sizeof(*node) + voffset + vsize);
   if (!node) return NULL;
-  printf("sizeof(*node):%ld node+1:%p\n",sizeof(*node),node+1);
+  // printf("sizeof(*node):%ld key:%s, value:%s, node:%p, node+1:%p\n",sizeof(*node), key, value, node, node+1);
   memcpy(node + 1, key, ksize);
   node->hash = map_hash(key);
   node->value = ((char*) (node + 1)) + voffset;
@@ -132,6 +132,10 @@ void *map_get_(map_base_t *m, const char *key) {
 }
 
 
+/**
+ * @brief 
+ * @param value 传入数据的指针
+ */
 int map_set_(map_base_t *m, const char *key, void *value, int vsize) {
   int n, err;
   map_node_t **next, *node;

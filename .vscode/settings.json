@@ -21,6 +21,8 @@
         "sys.h": "c",
         "initializer_list": "c",
         "map.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "new": "c",
+        "stdio.h": "c"
     }
 }

@@ -11,6 +11,7 @@
 #include "http/route.h"
 #include "util/util_string.h"
 #include "util/map.h"
+#include "util/array.h"
 
 HttpServer *http_svr;
 
@@ -142,14 +143,15 @@ void repeat_string(char *dest, const char *src, size_t n) {
 int main(){
     // setlocale(LC_ALL, ""); // 设置为当前环境的locale，通常会自动处理UTF-8编码问题
     test();
-    
-    
 
-    init(); // 调用初始化函数
+    Array *arr = array_new(char, 12);
     
-    run();
+    
+    // init(); // 调用初始化函数
+    
+    // run();
 
-    destroy();
+    // destroy();
     
     return 0;
 }

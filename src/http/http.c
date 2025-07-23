@@ -12,8 +12,8 @@
 #include "../util/map.h"
 #include "../util/util_string.h"
 
-#define MAX_LINE_SIZE 1024
-#define MAX_HEADER_SIZE 4096
+#define MAX_LINE_SIZE 8192
+#define MAX_HEADER_SIZE 8192
 #define MAX_BODY_SIZE 1048576
 
 // ====================================================================
@@ -93,27 +93,30 @@ typedef struct HttpRequest {
     char *remote_host;
 
     char method[8];
-    char path[255];
+    char *path;
 
     map_str_t header;
-    map_str_t get_data;
+    map_strs_t query_data;
 
     // get 数据已经初始化过
     char get_data_init;
 
-
-    char *body_data;
+    char *body;
     
 } HttpRequest;
 
-
-static void _pull_end_flag(char *flag, size_t len, char c){
-    if(len > 1){
-        for(int i = 0; i < len-1;i++){
-            flag[i]=flag[i+1];
+/**
+ * @brief 操作结束标记，从后面推入字符
+ */
+static void __end_flag_push(char *flag, size_t len, char c){
+    if(len > 0){
+        if(len > 1){
+            for(int i = 0; i < len-1;i++){
+                flag[i]=flag[i+1];
+            }
         }
+        flag[len-1] = c;
     }
-    flag[len-1] = c;
 }
 
 /**
@@ -153,7 +156,7 @@ static int http_request_init(HttpRequest *request, int client_fd){
             return -1;
         }
 
-        _pull_end_flag(line_end_flag, 2, line_data[line_read]);
+        __end_flag_push(line_end_flag, 2, line_data[line_read]);
         line_read += n;
 
         if(line_read >=2 && strncmp(line_end_flag,"\r\n",2) == 0){
@@ -161,7 +164,11 @@ static int http_request_init(HttpRequest *request, int client_fd){
         }
     }
     line_data[line_read] = '\0';
-    if(!sscanf(line_data,"%7s %1024s ",request->method,request->path)){
+    request->path = malloc(sizeof(char)*line_read);
+    memset(request->path,0,line_read);
+
+
+    if(!sscanf(line_data,"%7s %8191s ",request->method, request->path)){
         return -1;
     }
 
@@ -175,29 +182,30 @@ static int http_request_init(HttpRequest *request, int client_fd){
         if(n <= 0){
             return -1;
         }
-        _pull_end_flag(line_end_flag, 2, header_data[header_read]);
-        _pull_end_flag(header_end_flag, 4, header_data[header_read]);
+        __end_flag_push(line_end_flag, 2, header_data[header_read]);
+        __end_flag_push(header_end_flag, 4, header_data[header_read]);
 
         header_read += n;
         // 行结束
         if(strncmp(line_end_flag,"\r\n",2) == 0){
             int l = header_read - header_line_offset-1;
             char *header_entry = malloc(sizeof(char)+l);
-            strcpy(header_entry, header_data + header_line_offset);
+            if(header_entry == NULL){
+                return -1;
+            }
+            strncpy(header_entry, header_data + header_line_offset,l);
             header_entry[l-1] = '\0';
 
-            // 查找第一个冒号位置
+            // // 查找第一个冒号位置
             char *col = strchr(header_entry,':');
             if(col){
                 *col = '\0';  // 将冒号填充成字符串结束
                 char *key = header_entry;
                 char *value = col+1;
-
                 while (*value == ' '|| *value == '\r' || *value == '\n')// 如果是空白或者换行，则指针往前推
                 {
                     value++;
                 }
-
                 _http_add_header(&request->header, key, value);
             }
 
@@ -212,17 +220,6 @@ static int http_request_init(HttpRequest *request, int client_fd){
         }
     }
     header_data[header_read] = '\0';
-
-    map_iter_t iter = map_iter();
-    const *key = map_next(&request->header, &iter);
-    // while ((key = map_next(&request->header,&iter) != NULL))
-    // {
-    //     printf("%s:%s\n",key,_http_get_header(&request->header,key));
-    // }
-    
-
-
-
 
     // 遍历 Content-Length 查找body长度
     char *content_length_str = _http_get_header(&request->header,"Content-Length");
@@ -252,7 +249,7 @@ static int http_request_init(HttpRequest *request, int client_fd){
         body_read += n;
     }
 
-    request->body_data = body;
+    request->body = body;
 
     return 0;
 }
@@ -303,10 +300,11 @@ const char *http_request_iter_header(HttpRequest *request, map_iter_t *iter_t){
 
 /**
  * @brief 获取指定的请求参数
+ * @param key query的键
  */
-char *http_request_get(HttpRequest *request, const char *key){
+char *http_request_query(HttpRequest *request, const char *key){
     // 取得值
-    char **value = map_get(&request->get_data,key);
+    char **value = map_get(&request->query_data,key);
     if(value != NULL){
         return *value;
     }
@@ -315,6 +313,57 @@ char *http_request_get(HttpRequest *request, const char *key){
     if(value == NULL && request->get_data_init){
         return NULL;
     }
+
+    // 提取问号 ?
+    // char *tmp = malloc(sizeof(char)* strlen(request->path)+1);
+    // /query?a=b&c=d
+
+    char *query = malloc(sizeof(char)*strlen(request->path)+1);
+    strcpy(query,request->path);
+
+    char *q = strchr(query,'?');
+    if(q && *(q+1) != '\0'){
+        char *qr = q+1;
+
+        char *save_ptr = NULL;
+        char *and = strtok_r(qr, '&', save_ptr);
+        
+        while (and)
+        {
+            char *eq = strchr(and,'=');
+            char *val = NULL;
+            if(eq){
+                *eq= '\0';
+                val = malloc(sizeof(char)* strlen(eq+1)+1);
+                strcpy(val, eq+1);
+            }
+
+            char ***entry = map_get(&request->query_data, eq);
+            if(entry == NULL){
+                map_set(&request->query_data, eq, val);
+            }else{
+                char ***old = entry;
+
+                free(old);
+            }
+            
+
+            and = strtok_r(NULL,'&',save_ptr);
+        }
+
+    }
+    char tmp[strlen(request->path)+1];
+    strcpy(tmp,request->path);
+
+    char *strtok_ptr;
+    char *token = strtok_r(tmp,'?', strtok_ptr);
+    
+
+
+    // query = strtok_r()
+    
+    
+    // 分割 &
 
     // TODO 需要初始化
     return NULL;
@@ -505,7 +554,7 @@ static void *run_client_handle(void *arg) {
         response_to_client(client_fd, &request, &response);
     }else{
         response.status = 404;
-        response_to_client(client_fd,&request, &response);
+        response_to_client(client_fd, &request, &response);
     }
     http_request_destroy(&request);
     http_response_destroy(&response);

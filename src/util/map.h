@@ -69,6 +69,7 @@ const char *map_next_(map_base_t *m, map_iter_t *iter);
 
 typedef map_t(void*) map_void_t;
 typedef map_t(char*) map_str_t;
+typedef map_t(char**) map_strs_t;
 typedef map_t(int) map_int_t;
 typedef map_t(char) map_char_t;
 typedef map_t(float) map_float_t;
